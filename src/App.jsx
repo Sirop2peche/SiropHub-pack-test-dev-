@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Home from './pages/Home';
 import {
@@ -9,7 +9,7 @@ import {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Layout>
         <Routes>
           <Route path="/"              element={<Home />} />
@@ -21,9 +21,9 @@ export default function App() {
           <Route path="/communities/*" element={<Communities />} />
           <Route path="/auth"          element={<Auth />} />
           <Route path="/upload"        element={<Upload />} />
-          <Route path="*"             element={<NotFound />} />
+          <Route path="*"              element={<NotFound />} />
         </Routes>
       </Layout>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
