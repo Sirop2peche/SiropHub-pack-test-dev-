@@ -1,0 +1,24 @@
+.page { padding: 48px 0 80px; }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 32px; flex-wrap: wrap; }
+.title { font-size: 32px; font-weight: 800; }
+.sub { font-size: 14px; color: var(--accent-green); margin-top: 4px; font-weight: 600; }
+
+.list { display: flex; flex-direction: column; gap: 10px; max-width: 680px; }
+
+.notif { display: flex; align-items: flex-start; gap: 14px; padding: 16px; cursor: pointer; transition: border-color var(--transition); }
+.notif:hover { border-color: var(--accent-indigo); }
+.notifUnread { border-color: var(--accent-indigo-dim); background: rgba(99,102,241,0.04); }
+
+.notifIcon { font-size: 24px; flex-shrink: 0; margin-top: 2px; }
+.notifBody { flex: 1; }
+.notifType { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-indigo); margin-bottom: 2px; }
+.notifText { font-size: 14px; color: var(--text-secondary); }
+.notifDate { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-indigo); flex-shrink: 0; margin-top: 6px; }
+
+.skeleton { height: 72px; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 80px 0; text-align: center; color: var(--text-secondary); }
+.emptySub { font-size: 13px; color: var(--text-muted); }
