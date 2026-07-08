@@ -1,7 +1,6 @@
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, where, orderBy, limit, startAfter,
-  serverTimestamp, increment, arrayUnion, arrayRemove, runTransaction,
+  query, where, orderBy, limit, serverTimestamp, increment, runTransaction,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -26,17 +25,24 @@ export async function getPack(id) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
-export async function getPacks({ sortBy = 'createdAt', category = null, pageSize = 12, after = null } = {}) {
-  const constraints = [
+// Requête simple sans index composite — tri côté client
+export async function getPacks({ sortBy = 'createdAt', category = null, pageSize = 24 } = {}) {
+  const snap = await getDocs(query(
+    collection(db, 'packs'),
     where('status', '==', 'published'),
-    orderBy(sortBy, 'desc'),
-    limit(pageSize),
-  ];
-  if (category) constraints.splice(1, 0, where('category', '==', category));
-  if (after) constraints.push(startAfter(after));
+    limit(50),
+  ));
+  let results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-  const snap = await getDocs(query(collection(db, 'packs'), ...constraints));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (category) results = results.filter(p => p.category === category);
+
+  results.sort((a, b) => {
+    const av = a[sortBy]?.seconds ?? (typeof a[sortBy] === 'number' ? a[sortBy] : 0);
+    const bv = b[sortBy]?.seconds ?? (typeof b[sortBy] === 'number' ? b[sortBy] : 0);
+    return bv - av;
+  });
+
+  return results.slice(0, pageSize);
 }
 
 export async function getUserPacks(uid) {
@@ -44,7 +50,6 @@ export async function getUserPacks(uid) {
     collection(db, 'packs'),
     where('authorId', '==', uid),
     where('status', '==', 'published'),
-    orderBy('createdAt', 'desc'),
   ));
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
@@ -58,7 +63,6 @@ export async function incrementDownloads(packId) {
 export async function toggleLike(packId, userId, liked) {
   const packRef = doc(db, 'packs', packId);
   const likeRef = doc(db, 'users', userId, 'likedPacks', packId);
-
   await runTransaction(db, async (tx) => {
     if (liked) {
       tx.delete(likeRef);
@@ -75,23 +79,16 @@ export async function isLiked(packId, userId) {
   return snap.exists();
 }
 
-export async function getLikedPacks(userId) {
-  const snap = await getDocs(collection(db, 'users', userId, 'likedPacks'));
-  return snap.docs.map(d => d.id);
-}
-
 // ── RATINGS ────────────────────────────────────────────────────────────────
 
-export async function ratePack(packId, userId, stars, review = '') {
+export async function ratePack(packId, userId, stars) {
   const ratingId = `${packId}_${userId}`;
   const ratingRef = doc(db, 'ratings', ratingId);
   const packRef = doc(db, 'packs', packId);
-
   await runTransaction(db, async (tx) => {
     const existing = await tx.get(ratingRef);
     const pack = await tx.get(packRef);
     const { avgRating = 0, ratingsCount = 0 } = pack.data();
-
     let newAvg, newCount;
     if (existing.exists()) {
       const oldStars = existing.data().stars;
@@ -101,8 +98,7 @@ export async function ratePack(packId, userId, stars, review = '') {
       newCount = ratingsCount + 1;
       newAvg = ((avgRating * ratingsCount) + stars) / newCount;
     }
-
-    tx.set(ratingRef, { packId, userId, stars, review, createdAt: serverTimestamp() });
+    tx.set(ratingRef, { packId, userId, stars, createdAt: serverTimestamp() });
     tx.update(packRef, { avgRating: Math.round(newAvg * 10) / 10, ratingsCount: newCount });
   });
 }
@@ -114,10 +110,9 @@ export async function getUserRating(packId, userId) {
 
 // ── COMMENTS ───────────────────────────────────────────────────────────────
 
-export async function addComment(packId, authorId, text, parentId = null) {
+export async function addComment(packId, authorId, text) {
   return addDoc(collection(db, 'comments'), {
     packId, authorId, text,
-    parentCommentId: parentId,
     status: 'visible',
     createdAt: serverTimestamp(),
   });
@@ -128,9 +123,9 @@ export async function getComments(packId) {
     collection(db, 'comments'),
     where('packId', '==', packId),
     where('status', '==', 'visible'),
-    orderBy('createdAt', 'asc'),
   ));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return results.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 }
 
 // ── USERS ──────────────────────────────────────────────────────────────────
@@ -150,21 +145,19 @@ export async function getUserByPseudo(pseudo) {
 }
 
 export async function updateUserProfile(uid, data) {
-  await updateDoc(doc(db, 'users', uid), {
-    ...data,
-    pseudoLower: data.pseudo ? data.pseudo.toLowerCase() : undefined,
-  });
+  const update = { ...data };
+  if (data.pseudo) update.pseudoLower = data.pseudo.toLowerCase();
+  await updateDoc(doc(db, 'users', uid), update);
 }
 
 // ── FOLLOW ─────────────────────────────────────────────────────────────────
 
-export async function toggleFollow(targetUid, followerUid, isFollowing) {
+export async function toggleFollow(targetUid, followerUid, isFollowingNow) {
   const followRef = doc(db, 'users', followerUid, 'follows', targetUid);
   const targetRef = doc(db, 'users', targetUid);
   const followerRef = doc(db, 'users', followerUid);
-
   await runTransaction(db, async (tx) => {
-    if (isFollowing) {
+    if (isFollowingNow) {
       tx.delete(followRef);
       tx.update(targetRef, { followersCount: increment(-1) });
       tx.update(followerRef, { followingCreatorsCount: increment(-1) });
@@ -183,13 +176,10 @@ export async function isFollowing(targetUid, followerUid) {
 
 // ── COMMUNITIES ────────────────────────────────────────────────────────────
 
-export async function getCommunities(pageSize = 12) {
-  const snap = await getDocs(query(
-    collection(db, 'communities'),
-    orderBy('membersCount', 'desc'),
-    limit(pageSize),
-  ));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+export async function getCommunities() {
+  const snap = await getDocs(collection(db, 'communities'));
+  const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return results.sort((a, b) => (b.membersCount || 0) - (a.membersCount || 0));
 }
 
 export async function getCommunity(id) {
@@ -212,10 +202,10 @@ export async function getNotifications(userId, pageSize = 20) {
   const snap = await getDocs(query(
     collection(db, 'notifications'),
     where('userId', '==', userId),
-    orderBy('createdAt', 'desc'),
     limit(pageSize),
   ));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return results.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 }
 
 export async function markNotificationRead(notifId) {
@@ -228,6 +218,5 @@ export async function markAllNotificationsRead(userId) {
     where('userId', '==', userId),
     where('read', '==', false),
   ));
-  const batch = snap.docs.map(d => updateDoc(d.ref, { read: true }));
-  await Promise.all(batch);
+  await Promise.all(snap.docs.map(d => updateDoc(d.ref, { read: true })));
 }
